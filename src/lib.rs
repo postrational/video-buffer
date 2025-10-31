@@ -1,4 +1,5 @@
 mod buffer;
+mod convert;
 mod error;
 mod format;
 mod traits;
