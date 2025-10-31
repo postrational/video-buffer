@@ -7,7 +7,7 @@ mod traits;
 
 pub mod backends;
 
-pub use bridge::DisplayBridge;
+pub use bridge::{DisplayBridge, DisplayPresenter};
 pub use buffer::TripleBuffer;
 pub use error::VideoBufferError;
 pub use format::PixelFormat;

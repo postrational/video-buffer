@@ -4,6 +4,56 @@ use crate::{
     DisplayBackend, PixelFormat, Renderer, VideoBufferError,
 };
 
+/// Handles presentation: reads from buffer, converts format, and displays
+///
+/// This is useful for parallel rendering where you want the buffer shared
+/// between threads but the backend is only accessed from the main thread.
+pub struct DisplayPresenter<B: DisplayBackend> {
+    backend: B,
+    source_format: PixelFormat,
+    convert_buffer: Option<Vec<u8>>,
+}
+
+impl<B: DisplayBackend> DisplayPresenter<B> {
+    pub fn new(
+        mut backend: B,
+        width: u32,
+        height: u32,
+        source_format: PixelFormat,
+    ) -> Result<Self, VideoBufferError> {
+        backend.init(width, height)?;
+
+        let convert_buffer = if needs_conversion(source_format, B::FORMAT) {
+            let size = B::FORMAT.buffer_size(width, height);
+            Some(vec![0u8; size])
+        } else {
+            None
+        };
+
+        Ok(Self {
+            backend,
+            source_format,
+            convert_buffer,
+        })
+    }
+
+    /// Present a frame from the given buffer
+    pub fn present(&mut self, buffer: &TripleBuffer) -> Result<(), VideoBufferError> {
+        buffer.commit_present();
+        let present_buf = buffer.present_buffer();
+
+        let present_buffer = if let Some(ref mut convert_buf) = self.convert_buffer {
+            convert(&present_buf, convert_buf, self.source_format, B::FORMAT);
+            convert_buf.as_slice()
+        } else {
+            &present_buf[..]
+        };
+
+        self.backend.present(present_buffer)?;
+        Ok(())
+    }
+}
+
 pub struct DisplayBridge<B: DisplayBackend> {
     buffer: TripleBuffer,
     backend: B,
@@ -35,7 +85,10 @@ impl<B: DisplayBackend> DisplayBridge<B> {
         })
     }
 
-    /// Single-threaded API: render → commit_render → commit_present → present (all inline)
+    /// Single-threaded rendering: render → swap → swap → present (all inline)
+    ///
+    /// This is the simplest API for single-threaded rendering. For parallel
+    /// rendering, use `TripleBuffer` + `DisplayPresenter` instead.
     pub fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), VideoBufferError> {
         let width = self.buffer.width();
         let height = self.buffer.height();
@@ -53,19 +106,6 @@ impl<B: DisplayBackend> DisplayBridge<B> {
         self.buffer.commit_present();
 
         // Present
-        self.present_front()
-    }
-
-    /// Render frame to back buffer
-    pub fn render_to_back<R: Renderer>(&mut self, renderer: &mut R) {
-        let width = self.buffer.width();
-        let height = self.buffer.height();
-        let mut render_buf = self.buffer.render_buffer();
-        renderer.render(&mut render_buf, width, height);
-    }
-
-    /// Display contents of front buffer
-    pub fn present_front(&mut self) -> Result<(), VideoBufferError> {
         let present_buf = self.buffer.present_buffer();
 
         let present_buffer = if let Some(ref mut convert_buf) = self.convert_buffer {
@@ -78,10 +118,6 @@ impl<B: DisplayBackend> DisplayBridge<B> {
         self.backend.present(present_buffer)?;
 
         Ok(())
-    }
-
-    pub fn buffer(&self) -> &TripleBuffer {
-        &self.buffer
     }
 
     pub fn width(&self) -> u32 {
