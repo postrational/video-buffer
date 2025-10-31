@@ -6,6 +6,15 @@ pub fn needs_conversion(src_format: PixelFormat, dst_format: PixelFormat) -> boo
 }
 
 #[inline]
+pub fn convert(src: &[u8], dst: &mut [u8], src_format: PixelFormat, dst_format: PixelFormat) {
+    match (src_format, dst_format) {
+        (PixelFormat::Prgb8, PixelFormat::Rgba8) => convert_prgb_to_rgba(src, dst),
+        (PixelFormat::Rgba8, PixelFormat::Prgb8) => convert_rgba_to_prgb(src, dst),
+        _ => unreachable!("convert should only be called when formats differ"),
+    }
+}
+
+#[inline]
 pub fn convert_prgb_to_rgba(src: &[u8], dst: &mut [u8]) {
     assert_eq!(
         src.len(),
