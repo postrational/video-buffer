@@ -1,4 +1,4 @@
-use crate::{DoubleBufferError, PixelFormat};
+use crate::{PixelFormat, VideoBufferError};
 
 pub trait Renderer {
     const FORMAT: PixelFormat;
@@ -9,7 +9,7 @@ pub trait Renderer {
 pub trait DisplayBackend {
     const FORMAT: PixelFormat;
 
-    fn init(&mut self, width: u32, height: u32) -> Result<(), DoubleBufferError>;
+    fn init(&mut self, width: u32, height: u32) -> Result<(), VideoBufferError>;
 
-    fn present(&mut self, frame: &[u8]) -> Result<(), DoubleBufferError>;
+    fn present(&mut self, frame: &[u8]) -> Result<(), VideoBufferError>;
 }

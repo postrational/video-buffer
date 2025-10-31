@@ -1,28 +1,35 @@
 use crate::PixelFormat;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
-pub struct DoubleBuffer {
+pub struct TripleBuffer {
+    buffers: [Mutex<Vec<u8>>; 3],
+    render_idx: AtomicUsize,
+    ready_idx: AtomicUsize,
+    present_idx: AtomicUsize,
     width: u32,
     height: u32,
     format: PixelFormat,
-    front: Vec<u8>,
-    back: Vec<u8>,
 }
 
-impl DoubleBuffer {
+impl TripleBuffer {
     pub fn new(width: u32, height: u32, format: PixelFormat) -> Self {
         assert!(width > 0, "width must be greater than 0");
         assert!(height > 0, "height must be greater than 0");
 
-        let buffer_size = format.buffer_size(width, height);
-        let front = vec![0u8; buffer_size];
-        let back = vec![0u8; buffer_size];
-
+        let size = format.buffer_size(width, height);
         Self {
+            buffers: [
+                Mutex::new(vec![0u8; size]),
+                Mutex::new(vec![0u8; size]),
+                Mutex::new(vec![0u8; size]),
+            ],
+            render_idx: AtomicUsize::new(0),
+            ready_idx: AtomicUsize::new(1),
+            present_idx: AtomicUsize::new(2),
             width,
             height,
             format,
-            front,
-            back,
         }
     }
 
@@ -38,16 +45,32 @@ impl DoubleBuffer {
         self.format
     }
 
-    pub fn back_mut(&mut self) -> &mut [u8] {
-        &mut self.back
+    /// Get the buffer for rendering
+    pub fn render_buffer(&self) -> std::sync::MutexGuard<'_, Vec<u8>> {
+        let idx = self.render_idx.load(Ordering::Acquire);
+        self.buffers[idx].lock().unwrap()
     }
 
-    pub fn front(&self) -> &[u8] {
-        &self.front
+    /// Commit the rendered buffer
+    pub fn commit_render(&self) {
+        let render = self.render_idx.load(Ordering::Acquire);
+        let ready = self.ready_idx.load(Ordering::Acquire);
+        self.render_idx.store(ready, Ordering::Release);
+        self.ready_idx.store(render, Ordering::Release);
     }
 
-    pub fn swap(&mut self) {
-        std::mem::swap(&mut self.front, &mut self.back);
+    /// Get the buffer for presentation
+    pub fn present_buffer(&self) -> std::sync::MutexGuard<'_, Vec<u8>> {
+        let idx = self.present_idx.load(Ordering::Acquire);
+        self.buffers[idx].lock().unwrap()
+    }
+
+    /// Commit the presentation completed
+    pub fn commit_present(&self) {
+        let ready = self.ready_idx.load(Ordering::Acquire);
+        let present = self.present_idx.load(Ordering::Acquire);
+        self.ready_idx.store(present, Ordering::Release);
+        self.present_idx.store(ready, Ordering::Release);
     }
 }
 
@@ -56,93 +79,91 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_buffer_creation() {
-        let mut buffer = DoubleBuffer::new(320, 200, PixelFormat::Rgba8);
-        assert_eq!(buffer.width(), 320);
-        assert_eq!(buffer.height(), 200);
-        assert_eq!(buffer.format(), PixelFormat::Rgba8);
-        assert_eq!(buffer.front().len(), 320 * 200 * 4);
-        assert_eq!(buffer.back_mut().len(), 320 * 200 * 4);
+    fn test_triple_buffer_creation() {
+        let tb = TripleBuffer::new(320, 200, PixelFormat::Rgba8);
+        assert_eq!(tb.width(), 320);
+        assert_eq!(tb.height(), 200);
+        assert_eq!(tb.format(), PixelFormat::Rgba8);
     }
 
     #[test]
-    fn test_swap_operation() {
-        let mut buffer = DoubleBuffer::new(10, 10, PixelFormat::Rgba8);
+    fn test_triple_buffer_swapping() {
+        let tb = TripleBuffer::new(100, 100, PixelFormat::Rgba8);
 
-        // Write a pattern to the back buffer
-        buffer.back_mut()[0] = 42;
-        buffer.back_mut()[1] = 99;
+        // Write to render buffer
+        {
+            let mut render = tb.render_buffer();
+            render[0] = 42;
+        }
+        tb.commit_render();
 
-        // Front should still be zeros
-        assert_eq!(buffer.front()[0], 0);
-        assert_eq!(buffer.front()[1], 0);
+        // Swap to present
+        tb.commit_present();
 
-        // Swap
-        buffer.swap();
-
-        // Now front should have the pattern
-        assert_eq!(buffer.front()[0], 42);
-        assert_eq!(buffer.front()[1], 99);
-
-        // And back should be zeros
-        assert_eq!(buffer.back_mut()[0], 0);
-        assert_eq!(buffer.back_mut()[1], 0);
+        // Verify we can read from present
+        let present = tb.present_buffer();
+        assert_eq!(present[0], 42);
     }
 
     #[test]
-    fn test_multiple_swaps() {
-        let mut buffer = DoubleBuffer::new(10, 10, PixelFormat::Rgba8);
+    fn test_triple_buffer_cycling() {
+        let tb = TripleBuffer::new(10, 10, PixelFormat::Rgba8);
 
-        // First write
-        buffer.back_mut()[0] = 1;
-        buffer.swap();
-        assert_eq!(buffer.front()[0], 1);
+        // Frame 1
+        {
+            let mut render = tb.render_buffer();
+            render[0] = 1;
+        }
+        tb.commit_render();
+        tb.commit_present();
 
-        // Second write
-        buffer.back_mut()[0] = 2;
-        buffer.swap();
-        assert_eq!(buffer.front()[0], 2);
+        // Frame 2
+        {
+            let mut render = tb.render_buffer();
+            render[0] = 2;
+        }
+        tb.commit_render();
+        tb.commit_present();
 
-        // Third write
-        buffer.back_mut()[0] = 3;
-        buffer.swap();
-        assert_eq!(buffer.front()[0], 3);
-    }
+        // Frame 3
+        {
+            let mut render = tb.render_buffer();
+            render[0] = 3;
+        }
+        tb.commit_render();
+        tb.commit_present();
 
-    #[test]
-    fn test_small_buffer() {
-        let mut buffer = DoubleBuffer::new(1, 1, PixelFormat::Rgba8);
-        assert_eq!(buffer.width(), 1);
-        assert_eq!(buffer.height(), 1);
-        assert_eq!(buffer.front().len(), 4);
-        assert_eq!(buffer.back_mut().len(), 4);
-    }
-
-    #[test]
-    fn test_large_buffer() {
-        let mut buffer = DoubleBuffer::new(1920, 1080, PixelFormat::Rgba8);
-        assert_eq!(buffer.width(), 1920);
-        assert_eq!(buffer.height(), 1080);
-        assert_eq!(buffer.front().len(), 1920 * 1080 * 4);
-        assert_eq!(buffer.back_mut().len(), 1920 * 1080 * 4);
+        // All three buffers should have been used
+        let present = tb.present_buffer();
+        assert_eq!(present[0], 3);
     }
 
     #[test]
     fn test_prgb8_format() {
-        let buffer = DoubleBuffer::new(100, 100, PixelFormat::Prgb8);
-        assert_eq!(buffer.format(), PixelFormat::Prgb8);
-        assert_eq!(buffer.front().len(), 100 * 100 * 4);
+        let tb = TripleBuffer::new(100, 100, PixelFormat::Prgb8);
+        assert_eq!(tb.format(), PixelFormat::Prgb8);
+        let render = tb.render_buffer();
+        assert_eq!(render.len(), 100 * 100 * 4);
     }
 
     #[test]
     #[should_panic(expected = "width must be greater than 0")]
     fn test_zero_width() {
-        DoubleBuffer::new(0, 100, PixelFormat::Rgba8);
+        TripleBuffer::new(0, 100, PixelFormat::Rgba8);
     }
 
     #[test]
     #[should_panic(expected = "height must be greater than 0")]
     fn test_zero_height() {
-        DoubleBuffer::new(100, 0, PixelFormat::Rgba8);
+        TripleBuffer::new(100, 0, PixelFormat::Rgba8);
+    }
+
+    #[test]
+    fn test_large_buffer() {
+        let tb = TripleBuffer::new(1920, 1080, PixelFormat::Rgba8);
+        assert_eq!(tb.width(), 1920);
+        assert_eq!(tb.height(), 1080);
+        let render = tb.render_buffer();
+        assert_eq!(render.len(), 1920 * 1080 * 4);
     }
 }

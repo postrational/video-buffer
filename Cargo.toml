@@ -1,18 +1,43 @@
 [package]
-name = "double-buffer"
+name = "video-buffer"
 version = "0.1.0"
 edition = "2021"
 authors = ["Michal <michal@postrational.com>"]
 license = "MIT OR Apache-2.0"
-description = "A modular, format-aware, double-buffered rendering framework for Rust + WebAssembly"
-repository = "https://github.com/postrational/double-buffer"
-keywords = ["rendering", "wasm", "graphics", "double-buffer", "pixel"]
+description = "A modular, high-performance rendering framework with triple-buffering support for Rust + WebAssembly"
+repository = "https://github.com/postrational/video-buffer"
+keywords = ["rendering", "wasm", "graphics", "triple-buffer", "pixel"]
 categories = ["graphics", "rendering", "wasm"]
 readme = "README.md"
 
 [lib]
-name = "double_buffer"
+name = "video_buffer"
 path = "src/lib.rs"
 
 [dependencies]
 thiserror = "2.0"
+
+[dependencies.pixels]
+version = "0.15"
+optional = true
+
+[dependencies.winit]
+version = "0.30"
+optional = true
+
+[features]
+default = []
+pixels-backend = ["pixels", "winit"]
+
+[dev-dependencies]
+raqote = "0.8"
+bytemuck = "1.14"
+font-kit = "0.14"
+
+[[example]]
+name = "raqote_pixels"
+required-features = ["pixels-backend"]
+
+[[example]]
+name = "raqote_pixels_parallel"
+required-features = ["pixels-backend"]

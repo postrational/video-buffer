@@ -5,8 +5,10 @@ mod error;
 mod format;
 mod traits;
 
+pub mod backends;
+
 pub use bridge::DisplayBridge;
-pub use buffer::DoubleBuffer;
-pub use error::DoubleBufferError;
+pub use buffer::TripleBuffer;
+pub use error::VideoBufferError;
 pub use format::PixelFormat;
 pub use traits::{DisplayBackend, Renderer};

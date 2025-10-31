@@ -1,10 +1,11 @@
 use crate::{
+    buffer::TripleBuffer,
     convert::{convert, needs_conversion},
-    DisplayBackend, DoubleBuffer, DoubleBufferError, PixelFormat, Renderer,
+    DisplayBackend, PixelFormat, Renderer, VideoBufferError,
 };
 
 pub struct DisplayBridge<B: DisplayBackend> {
-    buffer: DoubleBuffer,
+    buffer: TripleBuffer,
     backend: B,
     convert_buffer: Option<Vec<u8>>,
 }
@@ -15,10 +16,10 @@ impl<B: DisplayBackend> DisplayBridge<B> {
         width: u32,
         height: u32,
         renderer_format: PixelFormat,
-    ) -> Result<Self, DoubleBufferError> {
+    ) -> Result<Self, VideoBufferError> {
         backend.init(width, height)?;
 
-        let buffer = DoubleBuffer::new(width, height, renderer_format);
+        let buffer = TripleBuffer::new(width, height, renderer_format);
 
         let convert_buffer = if needs_conversion(renderer_format, B::FORMAT) {
             let size = B::FORMAT.buffer_size(width, height);
@@ -34,29 +35,53 @@ impl<B: DisplayBackend> DisplayBridge<B> {
         })
     }
 
-    pub fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), DoubleBufferError> {
+    /// Single-threaded API: render → commit_render → commit_present → present (all inline)
+    pub fn render_frame<R: Renderer>(&mut self, renderer: &mut R) -> Result<(), VideoBufferError> {
         let width = self.buffer.width();
         let height = self.buffer.height();
 
-        renderer.render(self.buffer.back_mut(), width, height);
+        // Render to current render buffer
+        {
+            let mut render_buf = self.buffer.render_buffer();
+            renderer.render(&mut render_buf, width, height);
+        }
 
-        self.buffer.swap();
+        // Swap render ↔ ready
+        self.buffer.commit_render();
+
+        // Swap ready ↔ present
+        self.buffer.commit_present();
+
+        // Present
+        self.present_front()
+    }
+
+    /// Render frame to back buffer
+    pub fn render_to_back<R: Renderer>(&mut self, renderer: &mut R) {
+        let width = self.buffer.width();
+        let height = self.buffer.height();
+        let mut render_buf = self.buffer.render_buffer();
+        renderer.render(&mut render_buf, width, height);
+    }
+
+    /// Display contents of front buffer
+    pub fn present_front(&mut self) -> Result<(), VideoBufferError> {
+        let present_buf = self.buffer.present_buffer();
 
         let present_buffer = if let Some(ref mut convert_buf) = self.convert_buffer {
-            convert(
-                self.buffer.front(),
-                convert_buf,
-                self.buffer.format(),
-                B::FORMAT,
-            );
+            convert(&present_buf, convert_buf, self.buffer.format(), B::FORMAT);
             convert_buf.as_slice()
         } else {
-            self.buffer.front()
+            &present_buf[..]
         };
 
         self.backend.present(present_buffer)?;
 
         Ok(())
+    }
+
+    pub fn buffer(&self) -> &TripleBuffer {
+        &self.buffer
     }
 
     pub fn width(&self) -> u32 {
@@ -115,12 +140,12 @@ mod tests {
     impl DisplayBackend for MockBackend {
         const FORMAT: PixelFormat = PixelFormat::Rgba8;
 
-        fn init(&mut self, _width: u32, _height: u32) -> Result<(), DoubleBufferError> {
+        fn init(&mut self, _width: u32, _height: u32) -> Result<(), VideoBufferError> {
             self.init_called = true;
             Ok(())
         }
 
-        fn present(&mut self, frame: &[u8]) -> Result<(), DoubleBufferError> {
+        fn present(&mut self, frame: &[u8]) -> Result<(), VideoBufferError> {
             self.present_count += 1;
             self.last_frame = frame.to_vec();
             Ok(())
@@ -164,5 +189,20 @@ mod tests {
         }
 
         assert_eq!(bridge.backend.present_count, 10);
+    }
+
+    #[test]
+    fn test_triple_buffer_cycling() {
+        let backend = MockBackend::new();
+        let mut bridge = DisplayBridge::new(backend, 10, 10, PixelFormat::Rgba8).unwrap();
+        let mut renderer = MockRenderer::new();
+
+        // Render 3 frames to ensure all buffers are cycled
+        for _ in 0..3 {
+            bridge.render_frame(&mut renderer).unwrap();
+        }
+
+        assert_eq!(renderer.render_count, 3);
+        assert_eq!(bridge.backend.present_count, 3);
     }
 }
