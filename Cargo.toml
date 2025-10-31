@@ -1,0 +1,18 @@
+[package]
+name = "double-buffer"
+version = "0.1.0"
+edition = "2021"
+authors = ["Michal <michal@postrational.com>"]
+license = "MIT OR Apache-2.0"
+description = "A modular, format-aware, double-buffered rendering framework for Rust + WebAssembly"
+repository = "https://github.com/postrational/double-buffer"
+keywords = ["rendering", "wasm", "graphics", "double-buffer", "pixel"]
+categories = ["graphics", "rendering", "wasm"]
+readme = "README.md"
+
+[lib]
+name = "double_buffer"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = "2.0"
