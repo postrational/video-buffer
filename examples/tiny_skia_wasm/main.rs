@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::rc::Rc;
 use video_buffer::backends::WasmCanvasBackend;
 use video_buffer::{DisplayPresenter, FrameQueue, PixelFormat};
@@ -9,6 +10,15 @@ use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, Worker};
 const NUM_WORKERS: usize = 6;
 const MAX_QUEUED_FRAMES: usize = 8; // Maximum pre-rendered frames to keep
 const MAX_FPS: f64 = 80.0; // Maximum render framerate
+
+/// Helper function to build JS objects from key-value pairs
+fn build_js_object(fields: &[(&str, JsValue)]) -> js_sys::Object {
+    let obj = js_sys::Object::new();
+    for (key, value) in fields {
+        js_sys::Reflect::set(&obj, &JsValue::from_str(key), value).unwrap();
+    }
+    obj
+}
 
 struct WasmApp {
     // Presentation layer (handles timing, conversion, and canvas blitting)
@@ -22,8 +32,8 @@ struct WasmApp {
     next_render_frame: u64, // Next frame number to request from workers
 
     // FPS tracking
-    frame_times: Vec<f64>, // Timestamps of actual presented frames
-    fps: f64,              // Measured display FPS
+    frame_times: VecDeque<f64>, // Timestamps of actual presented frames
+    fps: f64,                   // Measured display FPS
 
     // Canvas dimensions (needed for worker init)
     width: u32,
@@ -68,7 +78,7 @@ impl WasmApp {
             workers,
             workers_ready: 0,
             next_render_frame: 0,
-            frame_times: Vec::new(),
+            frame_times: VecDeque::new(),
             fps: 0.0,
             width,
             height,
@@ -90,37 +100,13 @@ impl WasmApp {
                     if msg == "loaded" {
                         // Send init with worker_id, num_workers, and canvas dimensions
                         let app_ref = app_clone.borrow();
-                        let init_obj = js_sys::Object::new();
-                        js_sys::Reflect::set(
-                            &init_obj,
-                            &JsValue::from_str("cmd"),
-                            &JsValue::from_str("init"),
-                        )
-                        .unwrap();
-                        js_sys::Reflect::set(
-                            &init_obj,
-                            &JsValue::from_str("worker_id"),
-                            &JsValue::from_f64(worker_id as f64),
-                        )
-                        .unwrap();
-                        js_sys::Reflect::set(
-                            &init_obj,
-                            &JsValue::from_str("num_workers"),
-                            &JsValue::from_f64(NUM_WORKERS as f64),
-                        )
-                        .unwrap();
-                        js_sys::Reflect::set(
-                            &init_obj,
-                            &JsValue::from_str("width"),
-                            &JsValue::from_f64(app_ref.width as f64),
-                        )
-                        .unwrap();
-                        js_sys::Reflect::set(
-                            &init_obj,
-                            &JsValue::from_str("height"),
-                            &JsValue::from_f64(app_ref.height as f64),
-                        )
-                        .unwrap();
+                        let init_obj = build_js_object(&[
+                            ("cmd", JsValue::from_str("init")),
+                            ("worker_id", JsValue::from_f64(worker_id as f64)),
+                            ("num_workers", JsValue::from_f64(NUM_WORKERS as f64)),
+                            ("width", JsValue::from_f64(app_ref.width as f64)),
+                            ("height", JsValue::from_f64(app_ref.height as f64)),
+                        ]);
                         drop(app_ref);
                         worker.post_message(&init_obj).unwrap();
                     } else if msg == "ready" {
@@ -183,37 +169,13 @@ impl WasmApp {
             let worker_id = (frame_no as usize) % NUM_WORKERS;
 
             // Send render request to worker
-            let request_obj = js_sys::Object::new();
-            js_sys::Reflect::set(
-                &request_obj,
-                &JsValue::from_str("cmd"),
-                &JsValue::from_str("render"),
-            )
-            .unwrap();
-            js_sys::Reflect::set(
-                &request_obj,
-                &JsValue::from_str("frame_no"),
-                &JsValue::from_f64(frame_no as f64),
-            )
-            .unwrap();
-            js_sys::Reflect::set(
-                &request_obj,
-                &JsValue::from_str("width"),
-                &JsValue::from_f64(self.width as f64),
-            )
-            .unwrap();
-            js_sys::Reflect::set(
-                &request_obj,
-                &JsValue::from_str("height"),
-                &JsValue::from_f64(self.height as f64),
-            )
-            .unwrap();
-            js_sys::Reflect::set(
-                &request_obj,
-                &JsValue::from_str("fps"),
-                &JsValue::from_f64(self.fps),
-            )
-            .unwrap();
+            let request_obj = build_js_object(&[
+                ("cmd", JsValue::from_str("render")),
+                ("frame_no", JsValue::from_f64(frame_no as f64)),
+                ("width", JsValue::from_f64(self.width as f64)),
+                ("height", JsValue::from_f64(self.height as f64)),
+                ("fps", JsValue::from_f64(self.fps)),
+            ]);
 
             if let Err(e) = self.workers[worker_id].post_message(&request_obj) {
                 web_sys::console::error_1(&format!("Failed to post message: {:?}", e).into());
@@ -245,12 +207,12 @@ impl WasmApp {
     }
 
     fn update_fps(&mut self, now: f64) {
-        self.frame_times.push(now);
+        self.frame_times.push_back(now);
         if self.frame_times.len() > 60 {
-            self.frame_times.remove(0);
+            self.frame_times.pop_front(); // O(1) instead of O(n)
         }
         if self.frame_times.len() >= 2 {
-            let time_span = self.frame_times.last().unwrap() - self.frame_times.first().unwrap();
+            let time_span = self.frame_times.back().unwrap() - self.frame_times.front().unwrap();
             if time_span > 0.0 {
                 self.fps = (self.frame_times.len() as f64 - 1.0) / (time_span / 1000.0);
             }
@@ -293,22 +255,18 @@ fn start_render_loop(app: Rc<RefCell<WasmApp>>) {
     let callback = Closure::wrap(Box::new(move || {
         let _ = app_handle.borrow_mut().present_frame();
 
-        if let Some(cback) = closure_handle.borrow().as_ref() {
+        if let Some(callback) = closure_handle.borrow().as_ref() {
             let _ = web_sys::window()
                 .unwrap()
-                .request_animation_frame(cback.as_ref().unchecked_ref());
+                .request_animation_frame(callback.as_ref().unchecked_ref());
         }
     }) as Box<dyn FnMut()>);
 
-    closure.borrow_mut().replace(callback);
+    // Schedule first frame
+    web_sys::window()
+        .unwrap()
+        .request_animation_frame(callback.as_ref().unchecked_ref())
+        .unwrap();
 
-    {
-        let callback_ref = closure.borrow();
-        if let Some(callback) = callback_ref.as_ref() {
-            web_sys::window()
-                .unwrap()
-                .request_animation_frame(callback.as_ref().unchecked_ref())
-                .unwrap();
-        }
-    }
+    closure.borrow_mut().replace(callback);
 }

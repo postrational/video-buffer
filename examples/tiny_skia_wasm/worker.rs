@@ -11,6 +11,14 @@ thread_local! {
     static RENDERER: RefCell<Option<TinySkiaRenderer>> = RefCell::new(None);
 }
 
+/// Helper function to extract f64 values from JS objects with a default fallback
+fn get_f64(object: &JsValue, key: &str, default: f64) -> f64 {
+    js_sys::Reflect::get(object, &JsValue::from_str(key))
+        .ok()
+        .and_then(|value| value.as_f64())
+        .unwrap_or(default)
+}
+
 #[wasm_bindgen]
 pub fn worker_init(num_workers: usize, canvas_width: u32, canvas_height: u32) {
     console_error_panic_hook::set_once();
@@ -55,20 +63,9 @@ pub fn worker_main() {
             {
                 match cmd.as_str() {
                     "init" => {
-                        let num_workers =
-                            js_sys::Reflect::get(&data, &JsValue::from_str("num_workers"))
-                                .ok()
-                                .and_then(|v| v.as_f64())
-                                .unwrap_or(1.0) as usize;
-                        let canvas_width = js_sys::Reflect::get(&data, &JsValue::from_str("width"))
-                            .ok()
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(800.0) as u32;
-                        let canvas_height =
-                            js_sys::Reflect::get(&data, &JsValue::from_str("height"))
-                                .ok()
-                                .and_then(|v| v.as_f64())
-                                .unwrap_or(600.0) as u32;
+                        let num_workers = get_f64(&data, "num_workers", 1.0) as usize;
+                        let canvas_width = get_f64(&data, "width", 800.0) as u32;
+                        let canvas_height = get_f64(&data, "height", 600.0) as u32;
 
                         worker_init(num_workers, canvas_width, canvas_height);
                         global_clone
@@ -76,22 +73,10 @@ pub fn worker_main() {
                             .unwrap();
                     }
                     "render" => {
-                        let frame_no = js_sys::Reflect::get(&data, &JsValue::from_str("frame_no"))
-                            .ok()
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(0.0) as u64;
-                        let width = js_sys::Reflect::get(&data, &JsValue::from_str("width"))
-                            .ok()
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(800.0) as u32;
-                        let height = js_sys::Reflect::get(&data, &JsValue::from_str("height"))
-                            .ok()
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(600.0) as u32;
-                        let fps = js_sys::Reflect::get(&data, &JsValue::from_str("fps"))
-                            .ok()
-                            .and_then(|v| v.as_f64())
-                            .unwrap_or(0.0);
+                        let frame_no = get_f64(&data, "frame_no", 0.0) as u64;
+                        let width = get_f64(&data, "width", 800.0) as u32;
+                        let height = get_f64(&data, "height", 600.0) as u32;
+                        let fps = get_f64(&data, "fps", 0.0);
 
                         let buffer_array = worker_render(frame_no, width, height, fps);
 
