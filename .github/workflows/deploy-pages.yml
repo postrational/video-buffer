@@ -29,6 +29,11 @@ jobs:
       - name: Install wasm-bindgen CLI
         run: cargo install wasm-bindgen-cli --locked
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev
+
       - name: Run tests
         run: cargo test
 
