@@ -39,7 +39,7 @@ jobs:
 
       - name: Build WASM examples
         run: |
-          cargo build --target wasm32-unknown-unknown --example tiny_skia_wasm_main --example tiny_skia_wasm_worker --release
+          cargo build --release --target wasm32-unknown-unknown --example tiny_skia_wasm_main --example tiny_skia_wasm_worker --features="wasm-canvas-backend"
           wasm-bindgen --out-dir examples/tiny_skia_wasm/dist --target web target/wasm32-unknown-unknown/release/examples/tiny_skia_wasm_main.wasm
           wasm-bindgen --out-dir examples/tiny_skia_wasm/dist --target web target/wasm32-unknown-unknown/release/examples/tiny_skia_wasm_worker.wasm
 
