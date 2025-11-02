@@ -48,6 +48,7 @@ jobs:
           rm -rf build/pages
           mkdir -p build/pages
           cp examples/tiny_skia_wasm/demo.html build/pages/index.html
+          cp examples/tiny_skia_wasm/demo.html build/pages/demo.html
           cp examples/tiny_skia_wasm/demo_fullscreen.html build/pages/demo_fullscreen.html
           cp examples/tiny_skia_wasm/worker.js build/pages/worker.js
           cp -r examples/tiny_skia_wasm/assets build/pages/
