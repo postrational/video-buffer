@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData, Worker};
 
-const NUM_WORKERS: usize = 6;
+const NUM_WORKERS: usize = 4;
 const MAX_QUEUED_FRAMES: usize = 8; // Maximum pre-rendered frames to keep
 const MAX_FPS: f64 = 66.0; // Maximum display framerate
 const MIN_FRAME_TIME_MS: f64 = 1000.0 / MAX_FPS; // Minimum time between frames (~12.5ms)
