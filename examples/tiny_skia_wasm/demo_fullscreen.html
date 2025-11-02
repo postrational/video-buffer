@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Video Buffer: Tiny-skia WASM Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            position: fixed;
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            object-fit: contain;
+        }
+
+        .info {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+        }
+
+        .info p {
+            margin: 5px 0;
+        }
+
+        .highlight {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        .back-link {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px 15px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-size: 14px;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+            transition: background 0.3s;
+        }
+
+        .back-link:hover {
+            background: rgba(0, 0, 0, 0.8);
+        }
+    </style>
+</head>
+<body>
+    <a href="demo.html" class="back-link">← Back to Windowed Demo</a>
+    <canvas id="canvas"></canvas>
+    <div class="info">
+        <p>Resolution: <span id="resolution">calculating...</span></p>
+    </div>
+
+    <script type="module">
+        import init, { start_custom } from './dist/tiny_skia_wasm_main.js';
+
+        // Wait for DOM to be fully loaded
+        async function initDemo() {
+            // Get canvas element from DOM
+            const canvas = document.getElementById('canvas');
+            if (!canvas) {
+                console.error('Canvas element not found');
+                return;
+            }
+
+            // Calculate dimensions using clientWidth/clientHeight for accurate viewport size
+            // This accounts for mobile Safari's dynamic UI and gives the actual visible area
+            const WIDTH = document.documentElement.clientWidth;
+            const HEIGHT = document.documentElement.clientHeight;
+
+            console.log(`Initializing canvas at ${WIDTH}x${HEIGHT}`);
+
+            // Set canvas internal resolution (pixel buffer size)
+            canvas.width = WIDTH;
+            canvas.height = HEIGHT;
+
+            // Update resolution display
+            document.getElementById('resolution').textContent = `${WIDTH} × ${HEIGHT}`;
+
+            // Initialize WASM module
+            console.log('Loading WASM module...');
+            await init();
+            console.log('WASM module loaded');
+
+            // Start the demo with the captured dimensions
+            console.log('Starting demo...');
+            await start_custom('canvas', WIDTH, HEIGHT);
+            console.log('Demo started');
+        }
+
+        // Ensure DOM is ready before initialization
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initDemo);
+        } else {
+            // DOM already loaded
+            initDemo();
+        }
+    </script>
+</body>
+</html>

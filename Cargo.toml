@@ -2,7 +2,7 @@
 name = "video-buffer"
 version = "0.1.0"
 edition = "2021"
-authors = ["Michal <michal@postrational.com>"]
+authors = ["Michal Karzynski <github@karzyn.com>"]
 license = "MIT OR Apache-2.0"
 description = "A modular, high-performance rendering framework with triple-buffering support for Rust + WebAssembly"
 repository = "https://github.com/postrational/video-buffer"
@@ -30,9 +30,18 @@ default = []
 pixels-backend = ["pixels", "winit"]
 
 [dev-dependencies]
-raqote = "0.8"
 bytemuck = "1.14"
+tiny-skia = "0.11"
+fontdue = "0.9"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "CanvasRenderingContext2d", "ImageData", "console", "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "ErrorEvent", "DedicatedWorkerGlobalScope"] }
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+raqote = "0.8"
 font-kit = "0.14"
+cosmic-text = "0.13"
 
 [[example]]
 name = "raqote_pixels"
@@ -41,3 +50,13 @@ required-features = ["pixels-backend"]
 [[example]]
 name = "raqote_pixels_parallel"
 required-features = ["pixels-backend"]
+
+[[example]]
+name = "tiny_skia_wasm_main"
+path = "examples/tiny_skia_wasm/main.rs"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "tiny_skia_wasm_worker"
+path = "examples/tiny_skia_wasm/worker.rs"
+crate-type = ["cdylib"]

@@ -1,0 +1,65 @@
+name: Deploy Demo Pages
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli --locked
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build WASM examples
+        run: |
+          cargo build --target wasm32-unknown-unknown --example tiny_skia_wasm_main --example tiny_skia_wasm_worker --release
+          wasm-bindgen --out-dir examples/tiny_skia_wasm/dist --target web target/wasm32-unknown-unknown/release/examples/tiny_skia_wasm_main.wasm
+          wasm-bindgen --out-dir examples/tiny_skia_wasm/dist --target web target/wasm32-unknown-unknown/release/examples/tiny_skia_wasm_worker.wasm
+
+      - name: Prepare site contents
+        run: |
+          rm -rf build/pages
+          mkdir -p build/pages
+          cp examples/tiny_skia_wasm/demo.html build/pages/index.html
+          cp examples/tiny_skia_wasm/demo_fullscreen.html build/pages/demo_fullscreen.html
+          cp examples/tiny_skia_wasm/worker.js build/pages/worker.js
+          cp -r examples/tiny_skia_wasm/assets build/pages/
+          cp -r examples/tiny_skia_wasm/dist build/pages/
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/pages
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

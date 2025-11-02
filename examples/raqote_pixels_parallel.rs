@@ -6,7 +6,9 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
-use video_buffer::{backends::PixelsBackend, DisplayPresenter, PixelFormat, Renderer, TripleBuffer};
+use video_buffer::{
+    backends::PixelsBackend, DisplayPresenter, PixelFormat, Renderer, TripleBuffer,
+};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
@@ -64,7 +66,10 @@ impl Renderer for RaqoteRenderer {
             &DrawOptions::new(),
         );
 
-        let text = format!("FPS: {:.0}  Frames: {} (Parallel)", self.fps, self.frame_count);
+        let text = format!(
+            "FPS: {:.0}  Frames: {} (Parallel)",
+            self.fps, self.frame_count
+        );
         dt.draw_text(
             &self.font,
             16.0,
