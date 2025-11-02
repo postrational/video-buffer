@@ -11,11 +11,7 @@ pub struct TinySkiaRenderer {
 }
 
 impl TinySkiaRenderer {
-    pub(crate) fn new(
-        num_workers: usize,
-        canvas_width: u32,
-        canvas_height: u32,
-    ) -> Self {
+    pub(crate) fn new(num_workers: usize, canvas_width: u32, canvas_height: u32) -> Self {
         let font_data = include_bytes!("./assets/Roboto-Regular.ttf");
         let font = Font::from_bytes(font_data as &[u8], fontdue::FontSettings::default())
             .expect("Failed to load font");

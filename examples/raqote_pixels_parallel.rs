@@ -90,6 +90,7 @@ struct App {
     buffer: Option<Arc<TripleBuffer>>,
     worker: Option<thread::JoinHandle<()>>,
     stop_tx: Option<std::sync::mpsc::Sender<()>>,
+    start_time: Instant,
 }
 
 impl App {
@@ -100,6 +101,7 @@ impl App {
             buffer: None,
             worker: None,
             stop_tx: None,
+            start_time: Instant::now(),
         }
     }
 }
@@ -180,7 +182,8 @@ impl ApplicationHandler for App {
                 if let (Some(ref buffer), Some(ref mut presenter)) =
                     (&self.buffer, &mut self.presenter)
                 {
-                    presenter.present(buffer).unwrap();
+                    let now_ms = self.start_time.elapsed().as_secs_f64() * 1000.0;
+                    presenter.present(buffer, now_ms).unwrap();
                 }
 
                 self.window.as_ref().unwrap().request_redraw();

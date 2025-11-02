@@ -49,9 +49,6 @@ impl Airplane {
         // Calculate velocity for rotation
         self.velocity_x = -self.arc_radius * self.speed * angle.sin();
         self.velocity_y = self.arc_radius * self.speed * angle.cos();
-
-        // Note: We don't do wrapping here anymore because we want continuous circular motion
-        // The arc_radius is large (2500.0) so planes naturally move in and out of view
     }
 
     fn rotation_angle(&self) -> f32 {

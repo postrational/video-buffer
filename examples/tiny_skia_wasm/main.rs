@@ -1,22 +1,18 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use video_buffer::{FrameQueue, PixelFormat, TripleBuffer};
+use video_buffer::backends::WasmCanvasBackend;
+use video_buffer::{DisplayPresenter, FrameQueue, PixelFormat};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData, Worker};
+use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, Worker};
 
 const NUM_WORKERS: usize = 6;
 const MAX_QUEUED_FRAMES: usize = 8; // Maximum pre-rendered frames to keep
-const MAX_FPS: f64 = 80.0; // Maximum display framerate
-const MIN_FRAME_TIME_MS: f64 = 1000.0 / MAX_FPS; // Minimum time between frames (~12.5ms)
+const MAX_FPS: f64 = 80.0; // Maximum render framerate
 
 struct WasmApp {
-    ctx: CanvasRenderingContext2d,
-    width: u32,
-    height: u32,
-
-    // Triple buffer for display (manages front/back/ready buffers)
-    triple_buffer: TripleBuffer,
+    // Presentation layer (handles timing, conversion, and canvas blitting)
+    presenter: DisplayPresenter<WasmCanvasBackend>,
 
     // Frame queue from workers (pre-rendered frames waiting to be displayed)
     frame_queue: FrameQueue,
@@ -24,11 +20,14 @@ struct WasmApp {
     workers: Vec<Worker>,
     workers_ready: usize,
     next_render_frame: u64, // Next frame number to request from workers
-    last_present_time: f64, // Timestamp of last frame presentation
 
     // FPS tracking
     frame_times: Vec<f64>, // Timestamps of actual presented frames
-    fps: f64,       // Measured display FPS
+    fps: f64,              // Measured display FPS
+
+    // Canvas dimensions (needed for worker init)
+    width: u32,
+    height: u32,
 }
 
 impl WasmApp {
@@ -48,8 +47,10 @@ impl WasmApp {
             .unwrap()
             .dyn_into::<CanvasRenderingContext2d>()?;
 
-        // Create triple buffer (RGBA8 format for canvas)
-        let triple_buffer = TripleBuffer::new(width, height, PixelFormat::Rgba8);
+        // Create backend and presenter
+        let backend = WasmCanvasBackend::new(ctx);
+        let presenter = DisplayPresenter::new(backend, width, height, PixelFormat::Rgba8)?
+            .with_max_fps(MAX_FPS);
 
         // Create multiple workers
         let worker_options = web_sys::WorkerOptions::new();
@@ -62,17 +63,15 @@ impl WasmApp {
         }
 
         Ok(Self {
-            ctx,
-            width,
-            height,
-            triple_buffer,
+            presenter,
             frame_queue: FrameQueue::new(MAX_QUEUED_FRAMES),
             workers,
             workers_ready: 0,
             next_render_frame: 0,
-            last_present_time: 0.0,
             frame_times: Vec::new(),
             fps: 0.0,
+            width,
+            height,
         })
     }
 
@@ -174,27 +173,6 @@ impl WasmApp {
         self.request_frames();
     }
 
-    fn prepare_next_frame(&mut self) -> bool {
-        // Try to get the next frame in sequence from the queue
-        if let Some(buffer) = self.frame_queue.pop_ready() {
-            // Copy frame to triple buffer's render buffer
-            {
-                let mut render_buf = self.triple_buffer.render_buffer();
-                render_buf.copy_from_slice(&buffer);
-            }
-
-            // Commit the render
-            self.triple_buffer.commit_render();
-
-            // Request more frames to keep queue filled
-            self.request_frames();
-
-            return true; // Frame is ready
-        }
-
-        false // No frame available yet
-    }
-
     fn request_frames(&mut self) {
         // Only request frames if we don't have too many in flight
         // next_render_frame - next_display_frame tells us how many frames are requested/queued total
@@ -248,39 +226,22 @@ impl WasmApp {
 
     fn present_frame(&mut self) -> Result<bool, JsValue> {
         let now = js_sys::Date::now();
-        let elapsed = now - self.last_present_time;
 
-        // Only present if enough time has elapsed
-        if elapsed < MIN_FRAME_TIME_MS {
-            return Ok(false); // Frame was skipped
+        // Try to get the next frame from the queue
+        if let Some(buffer) = self.frame_queue.pop_ready() {
+            let presented = self.presenter.present_frame(&buffer, now)?;
+
+            if presented {
+                self.update_fps(now);
+            }
+
+            // Request more frames to keep queue filled
+            self.request_frames();
+
+            Ok(presented)
+        } else {
+            Ok(false) // No frame available yet
         }
-
-        // Prepare the next frame from the queue
-        if !self.prepare_next_frame() {
-            // No frame available yet, skip
-            return Ok(false);
-        }
-
-        // Swap ready buffer to present buffer
-        self.triple_buffer.commit_present();
-
-        // Get the present buffer and blit to canvas
-        let present_buf = self.triple_buffer.present_buffer();
-
-        let image_data = ImageData::new_with_u8_clamped_array_and_sh(
-            wasm_bindgen::Clamped(&present_buf),
-            self.width,
-            self.height,
-        )?;
-        drop(present_buf);
-
-        self.ctx.put_image_data(&image_data, 0.0, 0.0)?;
-
-        self.last_present_time = now;
-
-        self.update_fps(now);
-
-        Ok(true) // Frame was presented
     }
 
     fn update_fps(&mut self, now: f64) {
@@ -332,10 +293,10 @@ fn start_render_loop(app: Rc<RefCell<WasmApp>>) {
     let callback = Closure::wrap(Box::new(move || {
         let _ = app_handle.borrow_mut().present_frame();
 
-        if let Some(cb) = closure_handle.borrow().as_ref() {
+        if let Some(cback) = closure_handle.borrow().as_ref() {
             let _ = web_sys::window()
                 .unwrap()
-                .request_animation_frame(cb.as_ref().unchecked_ref());
+                .request_animation_frame(cback.as_ref().unchecked_ref());
         }
     }) as Box<dyn FnMut()>);
 

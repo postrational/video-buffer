@@ -12,6 +12,8 @@ pub struct DisplayPresenter<B: DisplayBackend> {
     backend: B,
     source_format: PixelFormat,
     convert_buffer: Option<Vec<u8>>,
+    max_fps: Option<f64>,
+    last_present_time_ms: f64,
 }
 
 impl<B: DisplayBackend> DisplayPresenter<B> {
@@ -34,11 +36,33 @@ impl<B: DisplayBackend> DisplayPresenter<B> {
             backend,
             source_format,
             convert_buffer,
+            max_fps: None,
+            last_present_time_ms: 0.0,
         })
     }
 
-    /// Present a frame from the given buffer
-    pub fn present(&mut self, buffer: &TripleBuffer) -> Result<(), VideoBufferError> {
+    /// Configure maximum FPS for frame rate limiting
+    pub fn with_max_fps(mut self, fps: f64) -> Self {
+        self.max_fps = Some(fps);
+        self
+    }
+
+    /// Present a frame from the given buffer with optional timing control
+    ///
+    /// Returns `true` if the frame was presented, `false` if it was skipped due to timing.
+    pub fn present(
+        &mut self,
+        buffer: &TripleBuffer,
+        now_ms: f64,
+    ) -> Result<bool, VideoBufferError> {
+        // Check if enough time has elapsed
+        if let Some(max_fps) = self.max_fps {
+            let min_interval = 1000.0 / max_fps;
+            if now_ms - self.last_present_time_ms < min_interval {
+                return Ok(false); // Too soon, skip frame
+            }
+        }
+
         buffer.commit_present();
         let present_buf = buffer.present_buffer();
 
@@ -50,7 +74,33 @@ impl<B: DisplayBackend> DisplayPresenter<B> {
         };
 
         self.backend.present(present_buffer)?;
-        Ok(())
+        self.last_present_time_ms = now_ms;
+        Ok(true)
+    }
+
+    /// Present a raw frame directly (for use with FrameQueue)
+    ///
+    /// Returns `true` if the frame was presented, `false` if it was skipped due to timing.
+    pub fn present_frame(&mut self, frame: &[u8], now_ms: f64) -> Result<bool, VideoBufferError> {
+        // Check if enough time has elapsed
+        if let Some(max_fps) = self.max_fps {
+            let min_interval = 1000.0 / max_fps;
+            if now_ms - self.last_present_time_ms < min_interval {
+                return Ok(false); // Too soon, skip frame
+            }
+        }
+
+        // Convert if needed
+        let present_buffer = if let Some(ref mut convert_buf) = self.convert_buffer {
+            convert(frame, convert_buf, self.source_format, B::FORMAT);
+            convert_buf.as_slice()
+        } else {
+            frame
+        };
+
+        self.backend.present(present_buffer)?;
+        self.last_present_time_ms = now_ms;
+        Ok(true)
     }
 }
 

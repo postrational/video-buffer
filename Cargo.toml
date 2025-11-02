@@ -14,6 +14,30 @@ readme = "README.md"
 name = "video_buffer"
 path = "src/lib.rs"
 
+[features]
+default = []
+pixels-backend = ["pixels", "winit"]
+wasm-canvas-backend = ["wasm-bindgen", "web-sys"]
+
+[[example]]
+name = "raqote_pixels"
+required-features = ["pixels-backend"]
+
+[[example]]
+name = "raqote_pixels_parallel"
+required-features = ["pixels-backend"]
+
+[[example]]
+name = "tiny_skia_wasm_main"
+path = "examples/tiny_skia_wasm/main.rs"
+crate-type = ["cdylib"]
+required-features = ["wasm-canvas-backend"]
+
+[[example]]
+name = "tiny_skia_wasm_worker"
+path = "examples/tiny_skia_wasm/worker.rs"
+crate-type = ["cdylib"]
+
 [dependencies]
 thiserror = "2.0"
 
@@ -25,9 +49,14 @@ optional = true
 version = "0.30"
 optional = true
 
-[features]
-default = []
-pixels-backend = ["pixels", "winit"]
+[dependencies.wasm-bindgen]
+version = "0.2"
+optional = true
+
+[dependencies.web-sys]
+version = "0.3"
+features = ["CanvasRenderingContext2d", "ImageData"]
+optional = true
 
 [dev-dependencies]
 bytemuck = "1.14"
@@ -42,21 +71,3 @@ console_error_panic_hook = "0.1"
 raqote = "0.8"
 font-kit = "0.14"
 cosmic-text = "0.13"
-
-[[example]]
-name = "raqote_pixels"
-required-features = ["pixels-backend"]
-
-[[example]]
-name = "raqote_pixels_parallel"
-required-features = ["pixels-backend"]
-
-[[example]]
-name = "tiny_skia_wasm_main"
-path = "examples/tiny_skia_wasm/main.rs"
-crate-type = ["cdylib"]
-
-[[example]]
-name = "tiny_skia_wasm_worker"
-path = "examples/tiny_skia_wasm/worker.rs"
-crate-type = ["cdylib"]
