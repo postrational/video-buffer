@@ -11,15 +11,6 @@ const NUM_WORKERS: usize = 6;
 const MAX_QUEUED_FRAMES: usize = 8; // Maximum pre-rendered frames to keep
 const MAX_FPS: f64 = 80.0; // Maximum render framerate
 
-/// Helper function to build JS objects from key-value pairs
-fn build_js_object(fields: &[(&str, JsValue)]) -> js_sys::Object {
-    let obj = js_sys::Object::new();
-    for (key, value) in fields {
-        js_sys::Reflect::set(&obj, &JsValue::from_str(key), value).unwrap();
-    }
-    obj
-}
-
 struct WasmApp {
     // Presentation layer (handles timing, conversion, and canvas blitting)
     presenter: DisplayPresenter<WasmCanvasBackend>,
@@ -85,67 +76,73 @@ impl WasmApp {
         })
     }
 
-    fn init_workers(app: Rc<RefCell<Self>>, callback: Box<dyn Fn()>) -> Result<(), JsValue> {
-        let callback = Rc::new(callback);
+    fn init_workers(
+        app: Rc<RefCell<Self>>,
+        on_workers_ready: Box<dyn Fn()>,
+    ) -> Result<(), JsValue> {
+        let on_workers_ready = Rc::new(on_workers_ready);
 
         for worker_id in 0..NUM_WORKERS {
             let worker = app.borrow().workers[worker_id].clone();
-            let callback_clone = Rc::clone(&callback);
+            let on_workers_ready_handle = Rc::clone(&on_workers_ready);
             let app_clone = Rc::clone(&app);
 
-            let onmessage = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
-                let data = event.data();
+            let process_worker_message =
+                Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
+                    let data = event.data();
 
-                if let Some(msg) = data.as_string() {
-                    if msg == "loaded" {
-                        // Send init with worker_id, num_workers, and canvas dimensions
-                        let app_ref = app_clone.borrow();
-                        let init_obj = build_js_object(&[
-                            ("cmd", JsValue::from_str("init")),
-                            ("worker_id", JsValue::from_f64(worker_id as f64)),
-                            ("num_workers", JsValue::from_f64(NUM_WORKERS as f64)),
-                            ("width", JsValue::from_f64(app_ref.width as f64)),
-                            ("height", JsValue::from_f64(app_ref.height as f64)),
-                        ]);
-                        drop(app_ref);
-                        worker.post_message(&init_obj).unwrap();
-                    } else if msg == "ready" {
-                        let mut app_mut = app_clone.borrow_mut();
-                        app_mut.workers_ready += 1;
-                        if app_mut.workers_ready == NUM_WORKERS {
-                            drop(app_mut);
-                            callback_clone();
+                    if let Some(msg) = data.as_string() {
+                        if msg == "loaded" {
+                            // Send init with worker_id, num_workers, and canvas dimensions
+                            let app_ref = app_clone.borrow();
+                            let init_obj = build_js_object(&[
+                                ("cmd", JsValue::from_str("init")),
+                                ("worker_id", JsValue::from_f64(worker_id as f64)),
+                                ("num_workers", JsValue::from_f64(NUM_WORKERS as f64)),
+                                ("width", JsValue::from_f64(app_ref.width as f64)),
+                                ("height", JsValue::from_f64(app_ref.height as f64)),
+                            ]);
+                            drop(app_ref);
+                            worker.post_message(&init_obj).unwrap();
+                        } else if msg == "ready" {
+                            let mut app_mut = app_clone.borrow_mut();
+                            app_mut.workers_ready += 1;
+                            if app_mut.workers_ready == NUM_WORKERS {
+                                drop(app_mut);
+                                on_workers_ready_handle();
+                            }
                         }
-                    }
-                } else if data.is_object() {
-                    // Try to extract frame data (object with frame_no and buffer)
-                    if let (Ok(frame_no_val), Ok(buffer_val)) = (
-                        js_sys::Reflect::get(&data, &JsValue::from_str("frame_no")),
-                        js_sys::Reflect::get(&data, &JsValue::from_str("buffer")),
-                    ) {
-                        if let (Some(frame_no), Ok(array)) = (
-                            frame_no_val.as_f64(),
-                            buffer_val.dyn_into::<js_sys::Uint8Array>(),
+                    } else if data.is_object() {
+                        // Try to extract frame data (object with frame_no and buffer)
+                        if let (Ok(frame_no_val), Ok(buffer_val)) = (
+                            js_sys::Reflect::get(&data, &JsValue::from_str("frame_no")),
+                            js_sys::Reflect::get(&data, &JsValue::from_str("buffer")),
                         ) {
-                            let mut buffer = vec![0u8; array.length() as usize];
-                            array.copy_to(&mut buffer);
-                            app_clone
-                                .borrow_mut()
-                                .on_frame_ready(frame_no as u64, buffer);
+                            if let (Some(frame_no), Ok(array)) = (
+                                frame_no_val.as_f64(),
+                                buffer_val.dyn_into::<js_sys::Uint8Array>(),
+                            ) {
+                                let mut buffer = vec![0u8; array.length() as usize];
+                                array.copy_to(&mut buffer);
+                                app_clone
+                                    .borrow_mut()
+                                    .on_frame_ready(frame_no as u64, buffer);
+                            }
                         }
                     }
-                }
-            }) as Box<dyn FnMut(_)>);
+                }) as Box<dyn FnMut(_)>);
 
-            let onerror = Closure::wrap(Box::new(move |event: web_sys::ErrorEvent| {
+            let log_worker_error = Closure::wrap(Box::new(move |event: web_sys::ErrorEvent| {
                 web_sys::console::error_1(&format!("Worker {} failed to load", worker_id).into());
                 web_sys::console::log_1(&event);
             }) as Box<dyn FnMut(_)>);
 
-            app.borrow().workers[worker_id].set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
-            app.borrow().workers[worker_id].set_onerror(Some(onerror.as_ref().unchecked_ref()));
-            onmessage.forget();
-            onerror.forget();
+            app.borrow().workers[worker_id]
+                .set_onmessage(Some(process_worker_message.as_ref().unchecked_ref()));
+            app.borrow().workers[worker_id]
+                .set_onerror(Some(log_worker_error.as_ref().unchecked_ref()));
+            process_worker_message.forget();
+            log_worker_error.forget();
         }
 
         Ok(())
@@ -209,7 +206,7 @@ impl WasmApp {
     fn update_fps(&mut self, now: f64) {
         self.frame_times.push_back(now);
         if self.frame_times.len() > 60 {
-            self.frame_times.pop_front(); // O(1) instead of O(n)
+            self.frame_times.pop_front();
         }
         if self.frame_times.len() >= 2 {
             let time_span = self.frame_times.back().unwrap() - self.frame_times.front().unwrap();
@@ -248,25 +245,38 @@ pub fn start_custom(canvas_id: &str, width: u32, height: u32) -> Result<(), JsVa
 }
 
 fn start_render_loop(app: Rc<RefCell<WasmApp>>) {
-    let closure: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
-    let closure_handle = Rc::clone(&closure);
+    // Enables the closure to schedule itself recursively
+    let present_and_reschedule: Rc<RefCell<Option<Closure<dyn FnMut()>>>> =
+        Rc::new(RefCell::new(None));
+    let present_and_reschedule_handle = Rc::clone(&present_and_reschedule);
     let app_handle = Rc::clone(&app);
 
-    let callback = Closure::wrap(Box::new(move || {
+    let present_frame_loop = Closure::wrap(Box::new(move || {
         let _ = app_handle.borrow_mut().present_frame();
 
-        if let Some(callback) = closure_handle.borrow().as_ref() {
+        if let Some(scheduler) = present_and_reschedule_handle.borrow().as_ref() {
             let _ = web_sys::window()
                 .unwrap()
-                .request_animation_frame(callback.as_ref().unchecked_ref());
+                .request_animation_frame(scheduler.as_ref().unchecked_ref());
         }
     }) as Box<dyn FnMut()>);
 
     // Schedule first frame
     web_sys::window()
         .unwrap()
-        .request_animation_frame(callback.as_ref().unchecked_ref())
+        .request_animation_frame(present_frame_loop.as_ref().unchecked_ref())
         .unwrap();
 
-    closure.borrow_mut().replace(callback);
+    present_and_reschedule
+        .borrow_mut()
+        .replace(present_frame_loop);
+}
+
+/// Helper function to build JS objects from key-value pairs
+fn build_js_object(fields: &[(&str, JsValue)]) -> js_sys::Object {
+    let obj = js_sys::Object::new();
+    for (key, value) in fields {
+        js_sys::Reflect::set(&obj, &JsValue::from_str(key), value).unwrap();
+    }
+    obj
 }

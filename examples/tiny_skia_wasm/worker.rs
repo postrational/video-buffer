@@ -52,7 +52,7 @@ pub fn worker_main() {
     let global: DedicatedWorkerGlobalScope = js_sys::global().unchecked_into();
     let global_clone = global.clone();
 
-    let onmessage = Closure::wrap(Box::new(move |event: MessageEvent| {
+    let handle_message = Closure::wrap(Box::new(move |event: MessageEvent| {
         let data = event.data();
 
         if data.is_object() {
@@ -78,24 +78,24 @@ pub fn worker_main() {
                         let height = get_f64(&data, "height", 600.0) as u32;
                         let fps = get_f64(&data, "fps", 0.0);
 
-                        let buffer_array = worker_render(frame_no, width, height, fps);
+                        let rgba_buffer = worker_render(frame_no, width, height, fps);
 
                         // Send back frame with frame number
-                        let response = js_sys::Object::new();
+                        let render_result = js_sys::Object::new();
                         js_sys::Reflect::set(
-                            &response,
+                            &render_result,
                             &JsValue::from_str("frame_no"),
                             &JsValue::from_f64(frame_no as f64),
                         )
                         .unwrap();
                         js_sys::Reflect::set(
-                            &response,
+                            &render_result,
                             &JsValue::from_str("buffer"),
-                            &buffer_array,
+                            &rgba_buffer,
                         )
                         .unwrap();
 
-                        global_clone.post_message(&response).unwrap();
+                        global_clone.post_message(&render_result).unwrap();
                     }
                     _ => {}
                 }
@@ -103,8 +103,8 @@ pub fn worker_main() {
         }
     }) as Box<dyn FnMut(MessageEvent)>);
 
-    global.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
-    onmessage.forget();
+    global.set_onmessage(Some(handle_message.as_ref().unchecked_ref()));
+    handle_message.forget();
 
     // Signal to main thread that worker is ready
     global.post_message(&JsValue::from_str("loaded")).unwrap();
