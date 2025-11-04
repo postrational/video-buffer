@@ -7,9 +7,9 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, Worker};
 
-const NUM_WORKERS: usize = 6;
-const MAX_QUEUED_FRAMES: usize = 8; // Maximum pre-rendered frames to keep
-const MAX_FPS: f64 = 80.0; // Maximum render framerate
+const NUM_WORKERS: usize = 10;
+const MAX_QUEUED_FRAMES: usize = 60; // Maximum pre-rendered frames to keep
+const MAX_FPS: f64 = 90.0; // Maximum render framerate
 
 struct WasmApp {
     // Presentation layer (handles timing, conversion, and canvas blitting)

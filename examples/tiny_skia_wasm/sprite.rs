@@ -19,7 +19,7 @@ impl Airplane {
 
         // Adjust speed inversely to arc_radius to maintain constant linear speed
         // Linear speed = arc_radius * angular_speed
-        let target_linear_speed = 2.0;
+        let target_linear_speed = 1.0;
         let speed = target_linear_speed / arc_radius;
 
         let arc_center_x = x - arc_radius * angle.cos();
@@ -55,13 +55,28 @@ impl Airplane {
         self.velocity_y.atan2(self.velocity_x) + std::f32::consts::FRAC_PI_2
     }
 
-    pub(crate) fn draw(&self, pixmap: &mut PixmapMut, sprite: &Pixmap) {
+    fn is_visible(&self, canvas_width: u32, canvas_height: u32, sprite_size: f32) -> bool {
+        let half_size = sprite_size / 2.0;
+        self.x + half_size >= 0.0
+            && self.x - half_size <= canvas_width as f32
+            && self.y + half_size >= 0.0
+            && self.y - half_size <= canvas_height as f32
+    }
+
+    pub(crate) fn draw(&self, pixmap: &mut PixmapMut, sprite_rotations: &[Pixmap]) {
+        let angle_degrees = self.rotation_angle().to_degrees().rem_euclid(360.0);
+        let rotation_index = ((angle_degrees / 3.0).round() as usize) % 120;
+        let sprite = &sprite_rotations[rotation_index];
+
+        let sprite_size = sprite.width().max(sprite.height()) as f32;
+        if !self.is_visible(pixmap.width(), pixmap.height(), sprite_size) {
+            return;
+        }
+
         let sprite_center_x = sprite.width() as f32 / 2.0;
         let sprite_center_y = sprite.height() as f32 / 2.0;
 
-        let transform = Transform::from_translate(-sprite_center_x, -sprite_center_y)
-            .post_concat(Transform::from_rotate(self.rotation_angle().to_degrees()))
-            .post_concat(Transform::from_translate(self.x, self.y));
+        let transform = Transform::from_translate(self.x - sprite_center_x, self.y - sprite_center_y);
 
         pixmap.draw_pixmap(
             0,

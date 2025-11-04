@@ -1,12 +1,12 @@
 use crate::sprite::Airplane;
 use fontdue::layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle};
 use fontdue::Font;
-use tiny_skia::{Color, Pixmap, PixmapMut};
+use tiny_skia::{Color, Pixmap, PixmapMut, PixmapPaint, Transform};
 
 pub struct TinySkiaRenderer {
     font: Font,
     airplanes: Vec<Airplane>,
-    sprite: Pixmap,
+    sprite_rotations: Vec<Pixmap>,
     num_workers: usize,
 }
 
@@ -29,11 +29,37 @@ impl TinySkiaRenderer {
             data[idx + 3] = (data[idx + 3] as f32 * a) as u8; // B
         }
 
+        // Pre-render 120 rotated versions (every 3 degrees)
+        let sprite_center_x = sprite.width() as f32 / 2.0;
+        let sprite_center_y = sprite.height() as f32 / 2.0;
+        let mut sprite_rotations = Vec::with_capacity(120);
+
+        for i in 0..120 {
+            let angle_degrees = i as f32 * 3.0;
+            let mut rotated = Pixmap::new(sprite.width(), sprite.height())
+                .expect("Failed to create rotated sprite pixmap");
+
+            let transform = Transform::from_translate(-sprite_center_x, -sprite_center_y)
+                .post_concat(Transform::from_rotate(angle_degrees))
+                .post_concat(Transform::from_translate(sprite_center_x, sprite_center_y));
+
+            rotated.as_mut().draw_pixmap(
+                0,
+                0,
+                sprite.as_ref(),
+                &PixmapPaint::default(),
+                transform,
+                None,
+            );
+
+            sprite_rotations.push(rotated);
+        }
+
         // Generate ALL airplanes with deterministic seeded positions
         // All workers get the SAME airplanes for consistent rendering
         // Use actual canvas dimensions for positioning
         let mut airplanes = Vec::new();
-        for i in 0..1000 {
+        for i in 0..10000 {
             // Use deterministic "random" values based on index
             // This ensures all workers generate identical initial states
             let x = ((i * 137) % canvas_width as usize) as f32;
@@ -45,7 +71,7 @@ impl TinySkiaRenderer {
         Self {
             font,
             airplanes,
-            sprite,
+            sprite_rotations,
             num_workers,
         }
     }
@@ -102,7 +128,7 @@ impl TinySkiaRenderer {
 
         for airplane in &mut self.airplanes {
             airplane.update(frame_no);
-            airplane.draw(&mut pixmap_mut, &self.sprite);
+            airplane.draw(&mut pixmap_mut, &self.sprite_rotations);
         }
 
         // Render frame number and FPS

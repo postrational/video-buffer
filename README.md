@@ -2,17 +2,17 @@
 
 A high-performance, modular rendering framework for Rust + WebAssembly with triple-buffering support.
 
-## 🚀 Demo
+## Demo
 
 [**Live Demo**](https://postrational.github.io/video-buffer/)
 
-## 🛠️ Technologies used in demo
+## Technologies used in demo
 
 - **WebAssembly with Web Workers**
 - **tiny-skia** - Pure-Rust 2D graphics library
 - **fontdue** - Fast font rasterization
 
-## ✨ Features
+## Features
 
 - **Triple-buffering**
 - **Parallel rendering**
@@ -20,7 +20,7 @@ A high-performance, modular rendering framework for Rust + WebAssembly with trip
 - **60 FPS target** - Frame rate limit
 - **Full-screen support** - Dynamic `<canvas>` sizing for any viewport
 
-## 📦 Architecture
+## Architecture
 
 ```
 Main Thread                    Worker Threads (8x)
@@ -31,7 +31,7 @@ Main Thread                    Worker Threads (8x)
     └─ FPS tracking
 ```
 
-## 🏗️ Build
+## Build
 
 ```bash
 # Build main module
