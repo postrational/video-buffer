@@ -14,12 +14,13 @@ pub struct Airplane {
 
 impl Airplane {
     pub(crate) fn new(x: f32, y: f32, angle: f32, seed: u32) -> Self {
-        // Deterministic random arc_radius between 50 and 2000
-        let arc_radius = 50.0 + ((seed * 769) % 1951) as f32;
+        // Deterministic random arc_radius between 50 and max_radius
+        let max_radius = 100;
+        let arc_radius = 50.0 + ((seed * 769) % (max_radius - 49)) as f32;
 
         // Adjust speed inversely to arc_radius to maintain constant linear speed
         // Linear speed = arc_radius * angular_speed
-        let target_linear_speed = 1.0;
+        let target_linear_speed = 2.0;
         let speed = target_linear_speed / arc_radius;
 
         let arc_center_x = x - arc_radius * angle.cos();
@@ -76,7 +77,8 @@ impl Airplane {
         let sprite_center_x = sprite.width() as f32 / 2.0;
         let sprite_center_y = sprite.height() as f32 / 2.0;
 
-        let transform = Transform::from_translate(self.x - sprite_center_x, self.y - sprite_center_y);
+        let transform =
+            Transform::from_translate(self.x - sprite_center_x, self.y - sprite_center_y);
 
         pixmap.draw_pixmap(
             0,

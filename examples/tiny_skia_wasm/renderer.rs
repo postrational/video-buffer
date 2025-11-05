@@ -56,7 +56,6 @@ impl TinySkiaRenderer {
         }
 
         // Generate ALL airplanes with deterministic seeded positions
-        // All workers get the SAME airplanes for consistent rendering
         // Use actual canvas dimensions for positioning
         let mut airplanes = Vec::new();
         for i in 0..10000 {

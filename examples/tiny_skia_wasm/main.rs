@@ -7,9 +7,8 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, Worker};
 
-const NUM_WORKERS: usize = 10;
+const NUM_WORKERS: usize = 6;
 const MAX_QUEUED_FRAMES: usize = 20; // Maximum pre-rendered frames to keep
-const MAX_FPS: f64 = 90.0; // Maximum render framerate
 
 struct WasmApp {
     // Presentation layer (handles timing, conversion, and canvas blitting)
@@ -25,6 +24,8 @@ struct WasmApp {
     // FPS tracking
     frame_times: VecDeque<f64>, // Timestamps of actual presented frames
     fps: f64,                   // Measured display FPS
+
+    browser_frame_counter: u32,
 
     // Canvas dimensions (needed for worker init)
     width: u32,
@@ -50,9 +51,7 @@ impl WasmApp {
 
         // Create backend and presenter
         let backend = WasmCanvasBackend::new(ctx);
-        let presenter = DisplayPresenter::new(backend, width, height, PixelFormat::Rgba8)?
-            .with_max_fps(MAX_FPS);
-
+        let presenter = DisplayPresenter::new(backend, width, height, PixelFormat::Rgba8)?;
         // Create multiple workers
         let worker_options = web_sys::WorkerOptions::new();
         worker_options.set_type(web_sys::WorkerType::Module);
@@ -71,6 +70,7 @@ impl WasmApp {
             next_render_frame: 0,
             frame_times: VecDeque::new(),
             fps: 0.0,
+            browser_frame_counter: 0,
             width,
             height,
         })
@@ -184,6 +184,13 @@ impl WasmApp {
     }
 
     fn present_frame(&mut self) -> Result<bool, JsValue> {
+        self.browser_frame_counter += 1;
+
+        // Limit the display rate by skipping frames
+        if self.browser_frame_counter % 2 != 0 {
+            return Ok(false);
+        }
+
         let now = js_sys::Date::now();
 
         // Try to get the next frame from the queue
